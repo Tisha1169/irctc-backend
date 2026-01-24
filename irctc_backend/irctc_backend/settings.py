@@ -22,7 +22,11 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'fallback-dev-secret-key')
 
 DEBUG = True   # Keep True for development
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    'irctc-backend-w3ck.onrender.com'
+]
 
 
 # ============================
