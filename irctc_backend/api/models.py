@@ -55,9 +55,11 @@ class SeatInventory(models.Model):
 class Booking(models.Model):
 
     STATUS_CHOICES = (
-        ('CONFIRMED', 'Confirmed'),
-        ('CANCELLED', 'Cancelled'),
-    )
+    ('CONFIRMED', 'Confirmed'),
+    ('WAITLIST', 'Waitlist'),
+    ('CANCELLED', 'Cancelled'),
+)
+
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     train = models.ForeignKey(Train, on_delete=models.CASCADE)

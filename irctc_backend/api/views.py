@@ -2,14 +2,20 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+
 from .serializers import RegisterSerializer
 from django.db import transaction
 from .models import Train, SeatInventory, Booking
 
 
+# -----------------------------
+# USER REGISTRATION
+# -----------------------------
+
 class RegisterView(APIView):
 
     def post(self, request, *args, **kwargs):
+
         serializer = RegisterSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -22,14 +28,25 @@ class RegisterView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+# -----------------------------
+# AUTH TEST ENDPOINT
+# -----------------------------
+
 class ProtectedTestView(APIView):
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+
         return Response({
             "message": "You are authenticated!",
             "user": request.user.username
         })
+
+
+# -----------------------------
+# BOOK TICKET (CONFIRM / WAITLIST)
+# -----------------------------
 
 class BookTicketView(APIView):
 
@@ -49,35 +66,55 @@ class BookTicketView(APIView):
                     travel_date=travel_date
                 )
 
-                if seat.available_seats < seats_required:
-                    return Response(
-                        {"error": "Not enough seats available"},
-                        status=400
+                # ✅ CASE 1: Seats Available → CONFIRMED
+                if seat.available_seats >= seats_required:
+
+                    seat.available_seats -= seats_required
+                    seat.save()
+
+                    booking = Booking.objects.create(
+                        user=request.user,
+                        train_id=train_id,
+                        travel_date=travel_date,
+                        seats_booked=seats_required,
+                        status='CONFIRMED'
                     )
 
-                # Reduce seats
-                seat.available_seats -= seats_required
-                seat.save()
+                    return Response({
+                        "message": "Ticket CONFIRMED",
+                        "booking_id": booking.id,
+                        "status": "CONFIRMED"
+                    })
 
-                # Create booking
-                booking = Booking.objects.create(
-                    user=request.user,
-                    train_id=train_id,
-                    travel_date=travel_date,
-                    seats_booked=seats_required,
-                    status='CONFIRMED'
-                )
 
-                return Response({
-                    "message": "Ticket booked successfully",
-                    "booking_id": booking.id
-                })
+                # ✅ CASE 2: Seats Full → WAITLISTED
+                else:
+
+                    booking = Booking.objects.create(
+                        user=request.user,
+                        train_id=train_id,
+                        travel_date=travel_date,
+                        seats_booked=seats_required,
+                        status='WAITLISTED'
+                    )
+
+                    return Response({
+                        "message": "Ticket WAITLISTED",
+                        "booking_id": booking.id,
+                        "status": "WAITLISTED"
+                    })
 
         except SeatInventory.DoesNotExist:
+
             return Response(
                 {"error": "Seat inventory not found"},
-                status=404
+                status=status.HTTP_404_NOT_FOUND
             )
+
+
+# -----------------------------
+# CANCEL BOOKING + AUTO UPGRADE WAITLIST
+# -----------------------------
 
 class CancelBookingView(APIView):
 
@@ -98,7 +135,7 @@ class CancelBookingView(APIView):
                 if booking.status == "CANCELLED":
                     return Response(
                         {"error": "Booking already cancelled"},
-                        status=400
+                        status=status.HTTP_400_BAD_REQUEST
                     )
 
                 seat = SeatInventory.objects.select_for_update().get(
@@ -110,19 +147,40 @@ class CancelBookingView(APIView):
                 seat.available_seats += booking.seats_booked
                 seat.save()
 
-                # Update booking status
+                # Cancel booking
                 booking.status = "CANCELLED"
                 booking.save()
+
+                # ✅ AUTO CONFIRM WAITLIST
+                waitlist_booking = Booking.objects.filter(
+                    train=booking.train,
+                    travel_date=booking.travel_date,
+                    status='WAITLISTED'
+                ).order_by('booking_time').first()
+
+                if waitlist_booking:
+
+                    waitlist_booking.status = 'CONFIRMED'
+                    waitlist_booking.save()
+
+                    seat.available_seats -= waitlist_booking.seats_booked
+                    seat.save()
 
                 return Response({
                     "message": "Booking cancelled successfully"
                 })
 
         except Booking.DoesNotExist:
+
             return Response(
                 {"error": "Booking not found"},
-                status=404
+                status=status.HTTP_404_NOT_FOUND
             )
+
+
+# -----------------------------
+# BOOKING HISTORY
+# -----------------------------
 
 class BookingHistoryView(APIView):
 
@@ -130,7 +188,9 @@ class BookingHistoryView(APIView):
 
     def get(self, request):
 
-        bookings = Booking.objects.filter(user=request.user).order_by('-booking_time')
+        bookings = Booking.objects.filter(
+            user=request.user
+        ).order_by('-booking_time')
 
         data = []
 
@@ -145,4 +205,3 @@ class BookingHistoryView(APIView):
             })
 
         return Response(data)
-
