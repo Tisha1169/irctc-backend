@@ -20,13 +20,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'fallback-dev-secret-key')
 
-DEBUG = True   # Keep True for development
+DEBUG = os.getenv('DEBUG') == 'True'
+   # Keep True for development
 
-ALLOWED_HOSTS = [
-    '127.0.0.1',
-    'localhost',
-    'irctc-backend-w3ck.onrender.com'
-]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 
 # ============================
