@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import RegisterView, ProtectedTestView, BookTicketView, CancelBookingView, BookingHistoryView
+from .views import RegisterView, ProtectedTestView, BookTicketView, CancelBookingView, BookingHistoryView, AdminStatsView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 urlpatterns = [
@@ -9,6 +9,8 @@ urlpatterns = [
     path('book/', BookTicketView.as_view(), name='book'),
     path('cancel/', CancelBookingView.as_view(), name='cancel'),
     path('history/', BookingHistoryView.as_view(), name='history'),
+    path('admin/stats/', AdminStatsView.as_view()),
+
 
 
 ]

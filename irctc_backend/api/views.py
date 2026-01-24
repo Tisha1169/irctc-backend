@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from .serializers import RegisterSerializer
 from django.db import transaction
 from .models import Train, SeatInventory, Booking
+from .mongo import booking_logs_collection
 
 
 # -----------------------------
@@ -80,6 +81,15 @@ class BookTicketView(APIView):
                         status='CONFIRMED'
                     )
 
+                    # ✅ MONGO LOG
+                    booking_logs_collection.insert_one({
+                        "user": request.user.username,
+                        "action": "BOOK_TICKET",
+                        "train_id": train_id,
+                        "seats": seats_required,
+                        "status": "CONFIRMED"
+                    })
+
                     return Response({
                         "message": "Ticket CONFIRMED",
                         "booking_id": booking.id,
@@ -97,6 +107,15 @@ class BookTicketView(APIView):
                         seats_booked=seats_required,
                         status='WAITLISTED'
                     )
+
+                    # ✅ MONGO LOG
+                    booking_logs_collection.insert_one({
+                        "user": request.user.username,
+                        "action": "BOOK_TICKET",
+                        "train_id": train_id,
+                        "seats": seats_required,
+                        "status": "WAITLISTED"
+                    })
 
                     return Response({
                         "message": "Ticket WAITLISTED",
@@ -166,6 +185,15 @@ class CancelBookingView(APIView):
                     seat.available_seats -= waitlist_booking.seats_booked
                     seat.save()
 
+                # ✅ MONGO LOG
+                booking_logs_collection.insert_one({
+                    "user": request.user.username,
+                    "action": "CANCEL_TICKET",
+                    "booking_id": booking.id,
+                    "train": booking.train.name,
+                    "status": "SUCCESS"
+                })
+
                 return Response({
                     "message": "Booking cancelled successfully"
                 })
@@ -205,3 +233,30 @@ class BookingHistoryView(APIView):
             })
 
         return Response(data)
+
+class AdminStatsView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        if not request.user.is_staff:
+            return Response(
+                {"error": "Admin access required"},
+                status=403
+            )
+
+        total_bookings = Booking.objects.count()
+        confirmed = Booking.objects.filter(status='CONFIRMED').count()
+        cancelled = Booking.objects.filter(status='CANCELLED').count()
+        waitlisted = Booking.objects.filter(status='WAITLISTED').count()
+
+        total_trains = Train.objects.count()
+
+        return Response({
+            "total_bookings": total_bookings,
+            "confirmed": confirmed,
+            "cancelled": cancelled,
+            "waitlisted": waitlisted,
+            "total_trains": total_trains
+        })
