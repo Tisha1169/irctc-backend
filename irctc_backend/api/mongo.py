@@ -8,3 +8,4 @@ client = MongoClient(MONGO_URI)
 db = client["irctc_logs"]
 
 booking_logs_collection = db["booking_logs"]
+search_logs_collection = db["search_logs"]

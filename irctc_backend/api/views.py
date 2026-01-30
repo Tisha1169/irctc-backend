@@ -5,69 +5,129 @@ from rest_framework.permissions import IsAuthenticated
 
 from .serializers import RegisterSerializer
 from django.db import transaction
-from .models import Train, SeatInventory, Booking
-from .mongo import booking_logs_collection
 
+from .models import Train, Booking, SeatInventory, Station
+from .mongo import booking_logs_collection, search_logs_collection
+from datetime import datetime
 
-# -----------------------------
-# USER REGISTRATION
-# -----------------------------
-
-class RegisterView(APIView):
-
-    def post(self, request, *args, **kwargs):
-
-        serializer = RegisterSerializer(data=request.data)
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {"message": "User registered successfully"},
-                status=status.HTTP_201_CREATED
-            )
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# -----------------------------
-# AUTH TEST ENDPOINT
-# -----------------------------
-
-class ProtectedTestView(APIView):
+class TrainSearchView(APIView):
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
+        source_code = request.GET.get("source")
+        dest_code = request.GET.get("destination")
+
+        if not source_code or not dest_code:
+            return Response(
+                {"error": "source and destination required"},
+                status=400
+            )
+
+        try:
+            source = Station.objects.get(code=source_code)
+            destination = Station.objects.get(code=dest_code)
+
+            trains = Train.objects.filter(
+                source=source,
+                destination=destination
+            )
+
+            result = []
+
+            for train in trains:
+                result.append({
+                    "id": train.id,
+                    "train_number": train.train_number,
+                    "name": train.name,
+                    "source": source.name,
+                    "destination": destination.name
+                })
+
+            # MongoDB logging
+            search_logs_collection.insert_one({
+                "user": request.user.username,
+                "source": source_code,
+                "destination": dest_code,
+                "time": datetime.now()
+            })
+
+            return Response(result)
+
+        except Station.DoesNotExist:
+            return Response(
+                {"error": "Invalid station code"},
+                status=404
+            )
+
+
+# -----------------------------
+# REGISTER
+# -----------------------------
+
+class RegisterView(APIView):
+
+    def post(self, request):
+
+        serializer = RegisterSerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "User registered successfully"}, status=201)
+
+        return Response(serializer.errors, status=400)
+
+
+# -----------------------------
+# AUTH TEST
+# -----------------------------
+
+class ProtectedTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
         return Response({
-            "message": "You are authenticated!",
+            "message": "Authenticated",
             "user": request.user.username
         })
 
 
 # -----------------------------
-# BOOK TICKET (CONFIRM / WAITLIST)
+# BOOK TICKET
 # -----------------------------
 
 class BookTicketView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
 
         train_id = request.data.get('train_id')
         travel_date = request.data.get('travel_date')
-        seats_required = int(request.data.get('seats'))
+        seats = request.data.get('seats')
+
+        if not train_id or not travel_date or not seats:
+            return Response({"error": "Missing fields"}, status=400)
+
+        seats_required = int(seats)
 
         try:
             with transaction.atomic():
 
-                seat = SeatInventory.objects.select_for_update().get(
-                    train_id=train_id,
-                    travel_date=travel_date
+                train = Train.objects.get(id=train_id)
+
+                # ✅ AUTO CREATE SEAT INVENTORY
+                seat, created = SeatInventory.objects.select_for_update().get_or_create(
+                    train=train,
+                    travel_date=travel_date,
+                    defaults={
+                        "total_seats": 100,
+                        "available_seats": 100
+                    }
                 )
 
-                # ✅ CASE 1: Seats Available → CONFIRMED
+                # CONFIRMED
                 if seat.available_seats >= seats_required:
 
                     seat.available_seats -= seats_required
@@ -75,73 +135,65 @@ class BookTicketView(APIView):
 
                     booking = Booking.objects.create(
                         user=request.user,
-                        train_id=train_id,
+                        train=train,
                         travel_date=travel_date,
                         seats_booked=seats_required,
                         status='CONFIRMED'
                     )
 
-                    # ✅ MONGO LOG
-                    booking_logs_collection.insert_one({
-                        "user": request.user.username,
-                        "action": "BOOK_TICKET",
-                        "train_id": train_id,
-                        "seats": seats_required,
-                        "status": "CONFIRMED"
-                    })
+                    self.mongo_log(request.user.username, "BOOK", booking.id, "CONFIRMED")
 
                     return Response({
                         "message": "Ticket CONFIRMED",
-                        "booking_id": booking.id,
-                        "status": "CONFIRMED"
+                        "booking_id": booking.id
                     })
 
+                # WAITLIST
+                booking = Booking.objects.create(
+                    user=request.user,
+                    train=train,
+                    travel_date=travel_date,
+                    seats_booked=seats_required,
+                    status='WAITLIST'
+                )
 
-                # ✅ CASE 2: Seats Full → WAITLISTED
-                else:
+                self.mongo_log(request.user.username, "BOOK", booking.id, "WAITLIST")
 
-                    booking = Booking.objects.create(
-                        user=request.user,
-                        train_id=train_id,
-                        travel_date=travel_date,
-                        seats_booked=seats_required,
-                        status='WAITLISTED'
-                    )
+                return Response({
+                    "message": "Ticket WAITLISTED",
+                    "booking_id": booking.id
+                })
 
-                    # ✅ MONGO LOG
-                    booking_logs_collection.insert_one({
-                        "user": request.user.username,
-                        "action": "BOOK_TICKET",
-                        "train_id": train_id,
-                        "seats": seats_required,
-                        "status": "WAITLISTED"
-                    })
+        except Train.DoesNotExist:
+            return Response({"error": "Train not found"}, status=404)
 
-                    return Response({
-                        "message": "Ticket WAITLISTED",
-                        "booking_id": booking.id,
-                        "status": "WAITLISTED"
-                    })
 
-        except SeatInventory.DoesNotExist:
+    def mongo_log(self, user, action, booking_id, status):
 
-            return Response(
-                {"error": "Seat inventory not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        try:
+            booking_logs_collection.insert_one({
+                "user": user,
+                "action": action,
+                "booking_id": booking_id,
+                "status": status
+            })
+        except:
+            pass
 
 
 # -----------------------------
-# CANCEL BOOKING + AUTO UPGRADE WAITLIST
+# CANCEL BOOKING
 # -----------------------------
 
 class CancelBookingView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
 
         booking_id = request.data.get("booking_id")
+
+        if not booking_id:
+            return Response({"error": "booking_id required"}, status=400)
 
         try:
             with transaction.atomic():
@@ -152,111 +204,82 @@ class CancelBookingView(APIView):
                 )
 
                 if booking.status == "CANCELLED":
-                    return Response(
-                        {"error": "Booking already cancelled"},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+                    return Response({"error": "Already cancelled"}, status=400)
 
                 seat = SeatInventory.objects.select_for_update().get(
                     train=booking.train,
                     travel_date=booking.travel_date
                 )
 
-                # Restore seats
+                # restore seat
                 seat.available_seats += booking.seats_booked
                 seat.save()
 
-                # Cancel booking
                 booking.status = "CANCELLED"
                 booking.save()
 
-                # ✅ AUTO CONFIRM WAITLIST
-                waitlist_booking = Booking.objects.filter(
+                # AUTO PROMOTE WAITLIST
+                waitlist = Booking.objects.filter(
                     train=booking.train,
                     travel_date=booking.travel_date,
-                    status='WAITLISTED'
+                    status='WAITLIST'
                 ).order_by('booking_time').first()
 
-                if waitlist_booking:
+                if waitlist and seat.available_seats >= waitlist.seats_booked:
 
-                    waitlist_booking.status = 'CONFIRMED'
-                    waitlist_booking.save()
+                    waitlist.status = 'CONFIRMED'
+                    waitlist.save()
 
-                    seat.available_seats -= waitlist_booking.seats_booked
+                    seat.available_seats -= waitlist.seats_booked
                     seat.save()
 
-                # ✅ MONGO LOG
-                booking_logs_collection.insert_one({
-                    "user": request.user.username,
-                    "action": "CANCEL_TICKET",
-                    "booking_id": booking.id,
-                    "train": booking.train.name,
-                    "status": "SUCCESS"
-                })
-
-                return Response({
-                    "message": "Booking cancelled successfully"
-                })
+                return Response({"message": "Booking cancelled"})
 
         except Booking.DoesNotExist:
-
-            return Response(
-                {"error": "Booking not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Booking not found"}, status=404)
 
 
 # -----------------------------
-# BOOKING HISTORY
+# HISTORY
 # -----------------------------
 
 class BookingHistoryView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
-        bookings = Booking.objects.filter(
-            user=request.user
-        ).order_by('-booking_time')
+        bookings = Booking.objects.filter(user=request.user)
 
         data = []
 
-        for booking in bookings:
+        for b in bookings:
             data.append({
-                "booking_id": booking.id,
-                "train": booking.train.name,
-                "travel_date": booking.travel_date,
-                "seats": booking.seats_booked,
-                "status": booking.status,
-                "time": booking.booking_time
+                "booking_id": b.id,
+                "train": b.train.name,
+                "date": b.travel_date,
+                "seats": b.seats_booked,
+                "status": b.status
             })
 
         return Response(data)
 
-class AdminStatsView(APIView):
 
+# -----------------------------
+# ADMIN STATS
+# -----------------------------
+
+class AdminStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
         if not request.user.is_staff:
-            return Response(
-                {"error": "Admin access required"},
-                status=403
-            )
-
-        total_bookings = Booking.objects.count()
-        confirmed = Booking.objects.filter(status='CONFIRMED').count()
-        cancelled = Booking.objects.filter(status='CANCELLED').count()
-        waitlisted = Booking.objects.filter(status='WAITLISTED').count()
-
-        total_trains = Train.objects.count()
+            return Response({"error": "Admin only"}, status=403)
 
         return Response({
-            "total_bookings": total_bookings,
-            "confirmed": confirmed,
-            "cancelled": cancelled,
-            "waitlisted": waitlisted,
-            "total_trains": total_trains
+            "total_bookings": Booking.objects.count(),
+            "confirmed": Booking.objects.filter(status='CONFIRMED').count(),
+            "waitlisted": Booking.objects.filter(status='WAITLIST').count(),
+            "cancelled": Booking.objects.filter(status='CANCELLED').count(),
+            "total_trains": Train.objects.count()
         })
