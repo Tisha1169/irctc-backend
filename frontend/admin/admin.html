@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IRCTC Admin Dashboard</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</head>
+
+<body class="bg-gray-100">
+
+<!-- Sidebar -->
+<div class="flex min-h-screen">
+
+  <aside class="w-20 bg-gray-900 text-white flex flex-col items-center py-6 space-y-6">
+    <div class="bg-blue-600 w-10 h-10 rounded-full flex items-center justify-center font-bold">
+      IR
+    </div>
+    <span>🏠</span>
+    <span>📊</span>
+    <span>🎟</span>
+    <span>🚆</span>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="flex-1 p-6">
+
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Dashboard</h1>
+      <button onclick="logout()" class="bg-red-500 text-white px-4 py-1 rounded">
+        Logout
+      </button>
+    </div>
+
+    <!-- Highlight Card -->
+    <div class="bg-gradient-to-r from-blue-600 to-blue-400 text-white rounded-xl p-6 mb-6 flex justify-between">
+      <div>
+        <h2 class="text-xl font-bold">IRCTC Booking Analytics</h2>
+        <p>Live ticket reservation insights</p>
+      </div>
+      <button class="bg-white text-blue-600 px-4 py-2 rounded font-bold">
+        View Report
+      </button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+
+      <div class="bg-white p-4 rounded shadow">
+        <p>Total Bookings</p>
+        <h2 id="totalBookings" class="text-2xl font-bold">0</h2>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow">
+        <p>Confirmed</p>
+        <h2 id="confirmed" class="text-2xl font-bold text-green-600">0</h2>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow">
+        <p>Waitlisted</p>
+        <h2 id="waitlisted" class="text-2xl font-bold text-yellow-500">0</h2>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow">
+        <p>Cancelled</p>
+        <h2 id="cancelled" class="text-2xl font-bold text-red-500">0</h2>
+      </div>
+
+    </div>
+
+    <!-- Chart + Calendar Style Layout -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+
+      <div class="bg-white p-4 rounded shadow">
+        <h3 class="font-bold mb-3">Booking Trend</h3>
+        <canvas id="bookingChart"></canvas>
+      </div>
+
+      <div class="bg-white p-4 rounded shadow">
+        <h3 class="font-bold mb-3">Total Trains</h3>
+        <h1 id="trains" class="text-4xl font-bold text-blue-600">0</h1>
+      </div>
+
+    </div>
+
+    <!-- Booking Table -->
+    <div class="bg-white p-4 rounded shadow">
+
+      <h2 class="font-bold mb-3">Recent Bookings</h2>
+
+      <table class="w-full border">
+
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="p-2">ID</th>
+            <th>User</th>
+            <th>Train</th>
+            <th>Date</th>
+            <th>Seats</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+
+        <tbody id="bookingTable">
+
+        </tbody>
+
+      </table>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script src="admin.js"></script>
+
+</body>
+</html>
