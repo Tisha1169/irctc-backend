@@ -52,7 +52,7 @@ API Testing: Thunder Client / Postman
 
 ## Landing Page
 
-![Landing page UI](screenshots/landingpage.png)
+![Landing page UI](screenshots/landing page.png)
 
 
 ## Booking Page
