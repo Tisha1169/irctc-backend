@@ -51,9 +51,7 @@ API Testing: Thunder Client / Postman
 ![Login UI](screenshots/login.png)
 
 ## Landing Page
-
-![Landing page UI](screenshots/landing page.png)
-
+screenshots/landing page.png
 
 ## Booking Page
 
